@@ -17,7 +17,8 @@ CREATE TABLE posts (
   `mime` varchar(64) NOT NULL,
   `imgdata` mediumblob NOT NULL,
   `body` text NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY `idx_user_id_created_at` (`user_id`,`created_at` DESC)
 ) DEFAULT CHARSET=utf8mb4;
 
 DROP TABLE IF EXISTS comments;
