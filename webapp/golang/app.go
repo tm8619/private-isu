@@ -66,6 +66,10 @@ type Comment struct {
 	User      User      `db:"user"`
 }
 
+var userCommentCount = make(map[int]int)
+var postCommentCount = make(map[int]int)
+var mc *memcache.Client
+
 func init() {
 	memdAddr := os.Getenv("ISUCONP_MEMCACHED_ADDRESS")
 	if memdAddr == "" {
@@ -74,6 +78,8 @@ func init() {
 	memcacheClient := memcache.New(memdAddr)
 	store = gsm.NewMemcacheStore(memcacheClient, "iscogram_", []byte("sendagaya"))
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
+	mc = memcache.New(memdAddr)
 }
 
 func dbInitialize() {
@@ -88,6 +94,9 @@ func dbInitialize() {
 	for _, sql := range sqls {
 		db.Exec(sql)
 	}
+
+	userCommentCount = make(map[int]int)
+	postCommentCount = make(map[int]int)
 }
 
 func tryLogin(accountName, password string) *User {
@@ -171,15 +180,58 @@ func getFlash(w http.ResponseWriter, r *http.Request, key string) string {
 	}
 }
 
+func getCommentCountFromPostID(postID int) (int, error) {
+	key := fmt.Sprintf("comments.post.%d.count", postID)
+	val, err := mc.Get(key)
+	if err != nil && err != memcache.ErrCacheMiss {
+		return 0, err
+	}
+	if err == nil {
+		count, _ := strconv.Atoi(string(val.Value))
+		return count, nil
+	}
+
+	commentCount := 0
+	err = db.Get(&commentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", postID)
+	if err != nil {
+		return commentCount, err
+	}
+
+	err = mc.Set(&memcache.Item{Key: key, Value: []byte(strconv.Itoa(commentCount)), Expiration: 10})
+	return commentCount, err
+}
+
+func getCommentCountFromUserID(userID int) (int, error) {
+	key := fmt.Sprintf("comments.user.%d.count", userID)
+	val, err := mc.Get(key)
+	if err != nil && err != memcache.ErrCacheMiss {
+		return 0, err
+	}
+	if err == nil {
+		count, _ := strconv.Atoi(string(val.Value))
+		return count, nil
+	}
+
+	commentCount := 0
+	err = db.Get(&commentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `user_id` = ?", userID)
+	if err != nil {
+		return commentCount, err
+	}
+
+	err = mc.Set(&memcache.Item{Key: key, Value: []byte(strconv.Itoa(commentCount)), Expiration: 10})
+	return commentCount, err
+}
+
 func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
 	var posts []Post
 
 	for _, p := range results {
-		err := db.Get(&p.CommentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", p.ID)
+		count, err := getCommentCountFromPostID(p.ID)
 		if err != nil {
 			return nil, err
 		}
 
+		p.CommentCount = count
 		query := "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC"
 		if !allComments {
 			query += " LIMIT 3"
@@ -440,8 +492,7 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	commentCount := 0
-	err = db.Get(&commentCount, "SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?", user.ID)
+	commentCount, err := getCommentCountFromUserID(user.ID)
 	if err != nil {
 		log.Print(err)
 		return
@@ -457,22 +508,13 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 
 	commentedCount := 0
 	if postCount > 0 {
-		s := []string{}
-		for range postIDs {
-			s = append(s, "?")
-		}
-		placeholder := strings.Join(s, ", ")
-
-		// convert []int -> []interface{}
-		args := make([]interface{}, len(postIDs))
-		for i, v := range postIDs {
-			args[i] = v
-		}
-
-		err = db.Get(&commentedCount, "SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN ("+placeholder+")", args...)
-		if err != nil {
-			log.Print(err)
-			return
+		for _, postID := range postIDs {
+			c, err := getCommentCountFromPostID(postID)
+			if err != nil {
+				log.Print(err)
+				return
+			}
+			commentedCount += c
 		}
 	}
 
