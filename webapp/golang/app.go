@@ -66,6 +66,9 @@ type Comment struct {
 	User      User
 }
 
+var userCommentCount = make(map[int]int)
+var postCommentCount = make(map[int]int)
+
 func init() {
 	memdAddr := os.Getenv("ISUCONP_MEMCACHED_ADDRESS")
 	if memdAddr == "" {
@@ -74,6 +77,7 @@ func init() {
 	memcacheClient := memcache.New(memdAddr)
 	store = gsm.NewMemcacheStore(memcacheClient, "iscogram_", []byte("sendagaya"))
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
 }
 
 func dbInitialize() {
@@ -88,6 +92,9 @@ func dbInitialize() {
 	for _, sql := range sqls {
 		db.Exec(sql)
 	}
+
+	userCommentCount = make(map[int]int)
+	postCommentCount = make(map[int]int)
 }
 
 func tryLogin(accountName, password string) *User {
@@ -171,15 +178,46 @@ func getFlash(w http.ResponseWriter, r *http.Request, key string) string {
 	}
 }
 
+func getCommentCountFromPostID(postID int) (int, error) {
+	if count, ok := postCommentCount[postID]; ok {
+		return count, nil
+	}
+
+	commentCount := 0
+	err := db.Get(&commentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", postID)
+	if err != nil {
+		return commentCount, err
+	}
+
+	postCommentCount[postID] = commentCount
+	return commentCount, nil
+}
+
+func getCommentCountFromUserID(userID int) (int, error) {
+	if count, ok := userCommentCount[userID]; ok {
+		return count, nil
+	}
+
+	commentCount := 0
+	err := db.Get(&commentCount, "SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?", userID)
+	if err != nil {
+		return commentCount, err
+	}
+
+	userCommentCount[userID] = commentCount
+	return commentCount, nil
+}
+
 func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
 	var posts []Post
 
 	for _, p := range results {
-		err := db.Get(&p.CommentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", p.ID)
+		count, err := getCommentCountFromPostID(p.ID)
 		if err != nil {
 			return nil, err
 		}
 
+		p.CommentCount = count
 		query := "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC"
 		if !allComments {
 			query += " LIMIT 3"
@@ -444,8 +482,7 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	commentCount := 0
-	err = db.Get(&commentCount, "SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?", user.ID)
+	commentCount, err := getCommentCountFromUserID(user.ID)
 	if err != nil {
 		log.Print(err)
 		return
@@ -461,22 +498,13 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 
 	commentedCount := 0
 	if postCount > 0 {
-		s := []string{}
-		for range postIDs {
-			s = append(s, "?")
-		}
-		placeholder := strings.Join(s, ", ")
-
-		// convert []int -> []interface{}
-		args := make([]interface{}, len(postIDs))
-		for i, v := range postIDs {
-			args[i] = v
-		}
-
-		err = db.Get(&commentedCount, "SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN ("+placeholder+")", args...)
-		if err != nil {
-			log.Print(err)
-			return
+		for _, postID := range postIDs {
+			c, err := getCommentCountFromPostID(postID)
+			if err != nil {
+				log.Print(err)
+				return
+			}
+			commentedCount += c
 		}
 	}
 
@@ -727,6 +755,8 @@ func postComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	postCommentCount[postID]++
+	userCommentCount[me.ID]++
 	http.Redirect(w, r, fmt.Sprintf("/posts/%d", postID), http.StatusFound)
 }
 
