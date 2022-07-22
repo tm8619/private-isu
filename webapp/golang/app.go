@@ -68,6 +68,7 @@ type Comment struct {
 
 var userCommentCount = make(map[int]int)
 var postCommentCount = make(map[int]int)
+var mc *memcache.Client
 
 func init() {
 	memdAddr := os.Getenv("ISUCONP_MEMCACHED_ADDRESS")
@@ -78,6 +79,7 @@ func init() {
 	store = gsm.NewMemcacheStore(memcacheClient, "iscogram_", []byte("sendagaya"))
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
+	mc = memcache.New(memdAddr)
 }
 
 func dbInitialize() {
@@ -179,33 +181,45 @@ func getFlash(w http.ResponseWriter, r *http.Request, key string) string {
 }
 
 func getCommentCountFromPostID(postID int) (int, error) {
-	if count, ok := postCommentCount[postID]; ok {
+	key := fmt.Sprintf("comments.post.%d.count", postID)
+	val, err := mc.Get(key)
+	if err != nil && err != memcache.ErrCacheMiss {
+		return 0, err
+	}
+	if err == nil {
+		count, _ := strconv.Atoi(string(val.Value))
 		return count, nil
 	}
 
 	commentCount := 0
-	err := db.Get(&commentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", postID)
+	err = db.Get(&commentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", postID)
 	if err != nil {
 		return commentCount, err
 	}
 
-	postCommentCount[postID] = commentCount
-	return commentCount, nil
+	err = mc.Set(&memcache.Item{Key: key, Value: []byte(strconv.Itoa(commentCount)), Expiration: 10})
+	return commentCount, err
 }
 
 func getCommentCountFromUserID(userID int) (int, error) {
-	if count, ok := userCommentCount[userID]; ok {
+	key := fmt.Sprintf("comments.user.%d.count", userID)
+	val, err := mc.Get(key)
+	if err != nil && err != memcache.ErrCacheMiss {
+		return 0, err
+	}
+	if err == nil {
+		count, _ := strconv.Atoi(string(val.Value))
 		return count, nil
 	}
 
 	commentCount := 0
-	err := db.Get(&commentCount, "SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?", userID)
+	err = db.Get(&commentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `user_id` = ?", userID)
 	if err != nil {
 		return commentCount, err
 	}
 
-	userCommentCount[userID] = commentCount
-	return commentCount, nil
+	err = mc.Set(&memcache.Item{Key: key, Value: []byte(strconv.Itoa(commentCount)), Expiration: 10})
+	return commentCount, err
 }
 
 func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
@@ -755,8 +769,6 @@ func postComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	postCommentCount[postID]++
-	userCommentCount[me.ID]++
 	http.Redirect(w, r, fmt.Sprintf("/posts/%d", postID), http.StatusFound)
 }
 
