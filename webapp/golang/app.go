@@ -382,7 +382,7 @@ func getIndex(w http.ResponseWriter, r *http.Request) {
 	*/
 
 	err := db.Select(&results,
-		"SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id	WHERE u.del_flg = 0 ORDER BY `created_at` DESC LIMIT ?", postsPerPage)
+		"SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id WHERE u.del_flg = 0 ORDER BY `created_at` DESC LIMIT ?", postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -427,7 +427,7 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id	WHERE u.del_flg = 0 AND user_id = ? ORDER BY `created_at` DESC LIMIT ?", user.ID, postsPerPage)
+	err = db.Select(&results, "SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id WHERE u.del_flg = 0 AND user_id = ? ORDER BY `created_at` DESC LIMIT ?", user.ID, postsPerPage)
 
 	if err != nil {
 		log.Print(err)
@@ -517,7 +517,7 @@ func getPosts(w http.ResponseWriter, r *http.Request) {
 
 	results := []Post{}
 
-	err = db.Select(&results, "SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id	WHERE u.del_flg = 0 AND p.created_at <= ? ORDER BY p.created_at DESC LIMIT ?", t.Format(ISO8601Format), postsPerPage)
+	err = db.Select(&results, "SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id WHERE u.del_flg = 0 AND p.created_at <= ? ORDER BY p.created_at DESC LIMIT ?", t.Format(ISO8601Format), postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -553,7 +553,7 @@ func getPostsID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id	WHERE u.del_flg = 0 AND p.id = ?", pid)
+	err = db.Select(&results, "SELECT p.id, p.user_id, p.body, p.mime, p.created_at, u.account_name AS 'user.account_name' FROM posts AS p JOIN `users` AS u on u.id = p.user_id WHERE u.del_flg = 0 AND p.id = ?", pid)
 	if err != nil {
 		log.Print(err)
 		return
